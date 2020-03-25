@@ -1,5 +1,8 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import {Observable} from 'rxjs';
+import * as test from 'rsa';
+
 
 @Injectable({
   providedIn: 'root'
@@ -10,12 +13,16 @@ export class ClienteService {
 
   constructor(private http: HttpClient) { }
 
-  getData() {
-    return this.http.get(this.URL_API);
+  getData(): Observable<test.PublicKey> {
+    return this.http.get<test.PublicKey>(this.URL_API);
   }
 
-  postData(nombre: string) {
-    return this.http.post(this.URL_API, nombre);
+  postData(body: object) {
+    return this.http.post(this.URL_API, body);
+  }
+
+  post_message_sign(body: object) {
+    return this.http.post(this.URL_API + '/sign', body);
   }
 
 }

@@ -1,40 +1,108 @@
-import { Component, OnInit } from '@angular/core';
-import { ClienteService } from '../../services/cliente.service';
-import { NgForm } from '@angular/forms';
+"use strict";
+import { Component, OnInit } from "@angular/core";
+import { ClienteService } from "../../services/cliente.service";
+import { NgForm } from "@angular/forms";
+import * as bcu from "bigint-crypto-utils";
+import * as bac from "bigint-conversion";
+import * as test from "rsa";
+import {HexBase64BinaryEncoding} from "crypto";
 
 declare var M: any;
 
 @Component({
-  selector: 'app-clientes',
-  templateUrl: './clientes.component.html',
-  styleUrls: ['./clientes.component.css'],
+  selector: "app-clientes",
+  templateUrl: "./clientes.component.html",
+  styleUrls: ["./clientes.component.css"],
   providers: [ClienteService]
 })
 export class ClientesComponent implements OnInit {
+  messageForm: NgForm;
   dataReceive: string;
-  constructor(private clientService: ClienteService) { }
 
-  ngOnInit() {
-    this.getData();
+  publicKey: test.PublicKey;
+  keyPair: test.KeyPair;
+
+  decrypted: string;
+  verified: string;
+  r: bigint;
+  _ONE: BigInt = BigInt(1);
+  response: string;
+
+  constructor(private clientService: ClienteService) {}
+
+  async ngOnInit() {
+    // this.getPublicKey();
+
+    this.keyPair = await test.generateRandomKeys();
+    console.log(this.keyPair);
+    await this.getPublicKey();
   }
 
-  getData(){
-    this.clientService.getData()
-      .subscribe(res => {
-        console.log("Entra frontend");
-        console.log(res);
-        this.dataReceive = res.toString();
-
-      });
-  }
-
-  postData(form: NgForm){
-    console.log("Entra frontend post");
-    this.clientService.postData(form.value)
-    .subscribe(res => {
-      console.log(res);
-      M.toast({html: 'Cliente guardado'});
+  async getPublicKey() {
+    this.clientService.getData().subscribe(data => {
+      this.publicKey = new test.PublicKey(
+        bac.hexToBigint(data.e),
+        bac.hexToBigint(data.n)
+      );
+      this.dataReceive = this.publicKey.n;
     });
   }
+
+  async postData(form: NgForm) {
+    console.log(form.value.name);
+    const c = this.publicKey.encrypt(bac.textToBigint(form.value.name));
+    const message = { msg: bac.bigintToHex(c) };
+    this.clientService.postData(message).subscribe(res => {
+      M.toast({ html: "Mensaje enviado" });
+      // console.log(message.msg);
+      this.decrypted = bac.bigintToText(bac.hexToBigint(res['msg']));
+    });
+  }
+
+  async sign_message(form: NgForm) {
+    const m = bac.bigintToHex(bac.textToBigint(form.value.name));
+    const message = {
+      msg: m
+    };
+    this.clientService.post_message_sign(message).subscribe(res => {
+      const s = bac.hexToBigint(res['msg']);
+      const m = this.publicKey.verify(s);
+      console.log(m);
+      this.verified = bac.bigintToText(m);
+    });
+  }
+
+  async blind_sign_message(form: NgForm) {
+    // Generate the blinding factor
+    const m = bac.textToBigint(form.value.name);
+    do {
+      this.r = await bcu.prime(bcu.bitLength(this.publicKey.n));
+    } while (!(bcu.gcd(this.r, this.publicKey.n) === this._ONE))
+    // Generate the blind message
+    const b = await bac.bigintToHex(
+      (m * this.publicKey.encrypt(this.r)) % this.publicKey.n
+    );
+    const message = {
+      msg: b
+    };
+    this.clientService.post_message_sign(message).subscribe(async res => {
+      console.log(res['msg']);
+      const bs = bac.hexToBigint(res['msg']);
+      console.log(bs);
+      const s =
+        (await (bs * bcu.modInv(this.r, this.publicKey.n))) % this.publicKey.n;
+        console.log(s);
+      const m = await this.publicKey.verify(s);
+      console.log(m);
+      let m1= bac.bigintToText(m);
+      console.log(m1);
+      document.getElementById(
+        "blind-sign-verified"
+      ).innerHTML = ("The message verified is: " +
+        bac.bigintToText(m));
+    });
+  }
+
+
 
 }
